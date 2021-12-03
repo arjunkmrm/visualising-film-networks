@@ -1,0 +1,434 @@
+---
+title: "introduction"
+output: html_document
+---
+
+### What's this?
+
+This is a web app that I built to complement my analysis of how films have changed across the decades from the perspective of male and female characters. Why divide it into male and female? This is mainly because character arcs have been usually different for male and female characters. Combining all characters together would average out their nuanced differences. The networks you see above are word co-occurrence networks built from movie plots scraped from Wikipedia using the 'rvest' library. The network for each decade is built from 1000 movie plots, consisting of 100 movie plots from each year. Plots were parsed into tokens with parts of speech ('pos') tagged to them using 'spacyr', which runs with the 'spacy' library in python at the backend. 'GenderizeR' was then used to categorize the gender of the male and female entities that were extracted. After this, networks were constructed with the male and female characters as the central node by connecting co-occurring words in the order of their log likelihood of co-occurrence. The green nodes are the immediate co-occurrences of all male/female characters in the plots. The orange nodes are words that co-occur with the green nodes, and are hence secondary co-occurrences.
+
+### What's the use of this?
+
+The networks above can be used to quickly understand a 'typical' movie of the decade that you choose, from the perspective of male and female characters in the movie. For example, with part of speech (pos) set to 'verb' in the network above and decade set to '1940', we get a rough idea of which actions are more commonly associated with male and female characters. We would see that a primary point of difference between male and female characters is that female characters are much more likely to be associated with verbs like 'marry' and 'loves'. This instantly tells us about the differences in the roles that male and female characters played. You can slide the decade bar to see how this changes across decades.
+
+### Complete code
+#### Shiny implementation
+###### (complete annotation pending)
+
+```{r, eval=FALSE}
+
+library(shiny)
+library(tidyverse)
+library(visNetwork)
+library(igraph)
+library(quanteda)
+library(markdown)
+library(shinycssloaders)
+
+
+function(input, output) {
+ 
+  source("global.R")
+  load("global.RData")
+  
+  output$code.male <- renderPrint({ 
+    grapher("male/characters", input$nodes.general, token_filter(pos = input$pos.general, "female", input$decade.general, token.all))[[3]][1:input$nodes.general, ]
+  })
+  
+  output$code.female <- renderPrint({ 
+    grapher("female/characters", input$nodes.general, token_filter(pos = input$pos.general, "male", input$decade.general, token.all))[[3]][1:input$nodes.general, ]
+  })
+  
+  output$code.explore <- renderPrint({ 
+    grapher(input$word.explore, input$nodes.explore, token_filter3(input$pos.explore, input$decade.explore[1], input$decade.explore[2], token.all))[[3]][1:input$nodes.explore, ]
+  })
+  
+  output$network.male <- renderVisNetwork({
+    visIgraph(grapher("male/characters", input$nodes.general, token_filter(pos = input$pos.general, "female", input$decade.general, token.all))[[1]]) %>% 
+      visNodes(font = list(color = "white"))
+  })
+  output$network.female <- renderVisNetwork({
+    visIgraph(grapher("female/characters", input$nodes.general, token_filter(pos = input$pos.general, "male", input$decade.general, token.all))[[1]]) %>% 
+      visNodes(font = list(color = "white"))
+  })
+  output$network.explore <- renderVisNetwork({
+    visIgraph(grapher(input$word.explore, input$nodes.explore, token_filter3(input$pos.explore, input$decade.explore[1], input$decade.explore[2], token.all))[[1]]) %>% 
+      visNodes(font = list(color = "white"))
+  })
+}
+
+navbarPage(
+  theme = bslib::bs_theme(bootswatch = "lux",
+                          bg = "#202123",
+                          fg = "#FFFFFF"),
+  "Movie Plot Co-occurence Networks",
+  tabPanel("General",
+           fluidPage(
+             # App title ----
+             title = "Network visualisation",
+             h5("Set network parameters"),
+             fluidRow(
+               column(3,
+                      sliderInput("decade.general", "Select decade", min = 1940, max = 2010, value = c(1940), step = 10)
+               ),
+               column(3,
+                      selectInput("pos.general", "Select part of speech", choices = c("verb", "adj", "noun"))
+               ),
+               column(3,
+                      sliderInput('nodes.general', 'Number of immediately co-occurring nodes (green nodes)', 
+                                  min=3, max=30, value=10, 
+                                  step=1, round=0)
+               ),
+             ),
+             fluidRow(
+               column(12, p("Note: Green nodes in the network represent immediate co-occurences with the central blue node - here it's either 
+                            male or female characters.
+                            Orange nodes are immediate co-occurences of green nodes and hence secondary co-occurences of the central node.
+                            The thickness of the edges denote the log likelihood of co-occurrence.
+                            Scroll over the networks to examine individual nodes.
+                            Scroll down to read the complete documentation", style = "font-si11pt")),
+             ),
+             fluidRow(
+               column(3, h4("Male"), withSpinner(visNetworkOutput("network.male"), type = 3, color = "#FFFFFF", color.background = "#202123")),
+               column(3, h6("Immediate co-occurrences ranked by log likelihood - male (green nodes)"), verbatimTextOutput("code.male")),
+               column(3, h4("Female"), withSpinner(visNetworkOutput("network.female"), type = 3, color = "#FFFFFF", color.background = "#202123")),
+               column(3, h6("Immediate co-occurrences ranked by log likelihood - female (green nodes)"), verbatimTextOutput("code.female"))
+             ),
+             fluidRow(
+               column(9, includeMarkdown("introduction.Rmd")),
+             )
+           )
+           
+  ),
+  tabPanel("Explore",
+           fluidPage(
+             # App title ----
+             title = "Network visualisation",
+             h5("Set network parameters"),
+             fluidRow(
+               column(3,
+                      sliderInput("decade.explore", "Select decade range", min = 1940, max = 2010, value = c(1940, 1960), step = 10)
+               ),
+               column(3,
+                      textInput("word.explore", "Enter word you want to explore along with the pos e.g. wealthy/adj; run/verb; father/noun", value = "marry/verb", width = NULL, placeholder = NULL)
+               ),
+               column(3,
+                      sliderInput('nodes.explore', 'Number of immediately co-occurring nodes (green nodes)', 
+                                  min=3, max=30, value=10, 
+                                  step=1, round=0)
+               ),
+               column(3,
+                      selectInput("pos.explore", "Select part of speech. Note that male/female character nodes are not removed for greater context", choices = c("all", "verb", "adj", "noun"))
+               ),
+             ),
+             fluidRow(
+               column(9, withSpinner(visNetworkOutput("network.explore"), type = 3, color = "#FFFFFF", color.background = "#202123")),
+               column(3, h6("co-occuring words ranked by log likelihood"), verbatimTextOutput("code.explore"))
+             )
+           )
+  )
+)
+```
+
+#### Function scripts
+
+```{r, eval=FALSE}
+
+#connect R to python environment where spacy is installed
+reticulate::use_virtualenv("~/spacynlp-env", required = TRUE)	
+reticulate::py_config() #check whether configuration is right
+
+library(spacyr) #for NLP
+spacy_initialize(model = "en_core_web_sm") #spacy langugae model
+library(rvest) #for scraping
+library(tidyverse) 
+library(quanteda) #for text cleaning
+library(igraph) #for creating graphs
+library(visNetwork) #for visualixing graphs
+library(genderizeR) #for assigning gender
+
+############ SCRAPE PLOTS ######################################
+# extracts film plots over the entire decade, creates tokens with parts of speech tags - entities, 
+# nouns, verbs, adjectives etc., classifies entity genders
+
+s <- character()
+
+plot_scraper <- function(decade, n = 100){
+  for(j in 0 : 9){
+    year_full = decade
+    s_ind <- character()
+    url_start <- "https://en.wikipedia.org"
+    url_mid <- "/wiki/List_of_American_films_of_"
+    year_start = substr(year_full, 1, 2)
+    year_end = substr(year_full, 3, 3)
+    
+    url_end <- paste(year_start, paste(year_end, j, sep = ""), sep = "")
+    url <- paste(url_start, url_mid, url_end, sep = "")
+    
+    page <- read_html(url) #read html from url
+    
+    #access the links to different movies in the year
+    links <- html_nodes(page, "table.wikitable td i a")
+    #extract hyperlinks
+    links.href <- html_attr(links, "href")
+    #create accessible URLs to each of the films
+    plot.links <- paste("https://en.wikipedia.org", links.href, sep = "") 
+    #detect and delete dead/red links - important
+    plot.links <- plot.links[!plot.links %>% str_detect("redlink", negate = FALSE)]
+    #take a random sample of size n from obtained links
+    if(length(plot.links) > n){plot.links = sample(plot.links, n)} 
+    #initialize string to hold plots
+    plot <- character()
+    
+    #extract plots from each individual Wikipedia page for the movies
+    for(i in 1 : n){
+      #take only things under the plot heading
+      plot[i] <- plot.links[i] %>% read_html() %>% 
+        html_nodes(xpath = '//p[preceding::h2[1][contains(.,"Plot")]]') %>% 
+        html_text() %>%  paste(collapse = "\n")
+    }
+    #remove plots with no info - some movies don't have a plot section
+    #mostly the less popular ones
+    s_ind <- plot[plot != ""]
+    s <- c(s, s_ind)
+  }
+  return(s)
+}
+
+############ TOKEINZE FILMS ##################################
+#tokenize films, assign pos tagging and assign gender
+
+film_tokenizer <- function(plot_string, metadata){
+  #convert it into text corpus for cleaning
+  s <- corpus(s_all.i, docvars = s_docvars)
+  s <- corpus_reshape(s, to = "sentences") #split it into sentences
+  #count number of sentences - useful later when assigning docvars
+  docvars_complete <- docvars(s)
+  
+  #parse it into tokens using spacy - this is where the magic happens
+  toks.spacy <- spacy_parse(s) %>%
+    entity_consolidate() %>% #this combines single entities into one unit
+    #by replacing ' ' with '_' e.g. John Locke becomes John_Locke
+    as.tokens(include_pos = "pos") #include parts of speech information
+  
+  #extract entities person entities from the text i.e. movie characters
+  ents.spacy <- spacy_parse(s, entity = TRUE) %>% 
+    entity_extract(concatenator = "_") %>% #extract entities
+    filter(entity_type == "PERSON") %>% #filter persons
+    distinct(entity) #find distrinct persons i.e. remove duplicates
+  
+  #gender extraction
+  ents.spacy.temp <- ents.spacy %>% mutate(entity = str_replace_all(entity, "[_]", " "))
+  
+  #find given names
+  givenNames = findGivenNames(ents.spacy.temp$entity, progress = FALSE, apikey = "f9c5bce7f6785c173075cf0911e310b2") #identify given names
+  #find gender from given names
+  gender_data = genderize(ents.spacy.temp$entity, genderDB = givenNames, progress = FALSE)
+  #store all entities
+  entity.all <- gender_data %>% mutate(name = ents.spacy$entity) %>% select(name, gender) #keep only required columns
+  
+  #filter male entities
+  entity.male <- entity.all %>% filter(gender == "male")
+  #filter female entities
+  entity.female <- entity.all %>% filter(gender == "female")
+  n.males <- nrow(entity.male)
+  n.female <- nrow(entity.female)
+  
+  m.repl <- rep("Male/CHARACTERS", n.males)
+  f.repl <- rep("Female/CHARACTERS", n.female)
+  
+  #create tokens
+  toks.all <- toks.spacy %>% 
+    tokens_select(pattern = c("*/NOUN", "*/VERB", "*/ENTITY", "*/ADJ")) %>% 
+    tokens_replace(pattern = paste(entity.male$name, "/ENTITY", sep = ""), replacement = m.repl) %>% 
+    tokens_replace(pattern = paste(entity.female$name, "/ENTITY", sep = ""), replacement = f.repl) %>% 
+    tokens_remove(c("", "'s", "-", "ex", "-/NOUN", "*/ENTITY")) 
+  
+  #assign decade to tokens
+  toks.all$decade = docvars_complete 
+  return(toks.all)
+}
+########## CALCULATE CO-OCCURENCE STATISTICS #######################
+# Wiedemann, Gregor; Niekler, Andreas (2017): Hands-on: A five day text mining course for humanists and social scientists in R. Proceedings of the 1st Workshop on Teaching NLP for Digital Humanities (Teach4DH@GSCL 2017), Berlin.
+
+calculateCoocStatistics <- function(coocTerm, binDTM, measure = "DICE") {
+  
+  # Ensure Matrix (SparseM} or matrix {base} format
+  require(Matrix)
+  
+  # Ensure binary DTM
+  if (any(binDTM > 1)) {
+    binDTM[binDTM > 1] <- 1
+  }
+  
+  # calculate cooccurrence counts
+  coocCounts <- t(binDTM) %*% binDTM
+  
+  # retrieve numbers for statistic calculation
+  k <- nrow(binDTM)
+  ki <- sum(binDTM[, coocTerm])
+  kj <- colSums(binDTM)
+  names(kj) <- colnames(binDTM)
+  kij <- coocCounts[coocTerm, ]
+  
+  # calculate statistics
+  switch(measure, 
+         DICE = {
+           dicesig <- 2 * kij / (ki + kj)
+           dicesig <- dicesig[order(dicesig, decreasing=TRUE)]
+           sig <- dicesig
+         },
+         LOGLIK = {
+           logsig <- 2 * ((k * log(k)) - (ki * log(ki)) - (kj * log(kj)) + (kij * log(kij)) 
+                          + (k - ki - kj + kij) * log(k - ki - kj + kij) 
+                          + (ki - kij) * log(ki - kij) + (kj - kij) * log(kj - kij) 
+                          - (k - ki) * log(k - ki) - (k - kj) * log(k - kj))
+           logsig <- logsig[order(logsig, decreasing=T)]
+           sig <- logsig    
+         },
+         MI = {
+           mutualInformationSig <- log(k * kij / (ki * kj))
+           mutualInformationSig <- mutualInformationSig[order(mutualInformationSig, decreasing = TRUE)]
+           sig <- mutualInformationSig    
+         },
+         {
+           sig <- sort(kij, decreasing = TRUE)
+         }
+  )
+  sig <- sig[-match(coocTerm, names(sig))]
+  
+  return(sig)
+}
+
+########## CREATE GRAPH FROM TOKENS #################################
+# Wiedemann, Gregor; Niekler, Andreas (2017): Hands-on: A five day text mining course for humanists and social scientists in R. Proceedings of the 1st Workshop on Teaching NLP for Digital Humanities (Teach4DH@GSCL 2017), Berlin.
+
+grapher <- function(coocTerm, numberOfCoocs, toks){
+  #minimumFrequency = 10
+  binDTM <- toks %>% 
+    dfm() %>% 
+    dfm_trim(min_docfreq = minimumFrequency) %>% 
+    dfm_weight("boolean")
+  
+  coocs <- calculateCoocStatistics(coocTerm, binDTM, measure="LOGLIK")
+
+  # Display the numberOfCoocs main terms
+  imm.coocs <- names(coocs[1:numberOfCoocs])
+  
+  resultGraph <- data.frame(from = character(), to = character(), sig = numeric(0))
+  
+  # The structure of the temporary graph object is equal to that of the resultGraph
+  tmpGraph <- data.frame(from = character(), to = character(), sig = numeric(0))
+  
+  # Fill the data.frame to produce the correct number of lines
+  tmpGraph[1:numberOfCoocs, 3] <- coocs[1:numberOfCoocs]
+  # Entry of the search word into the first column in all lines
+  tmpGraph[, 1] <- coocTerm
+  # Entry of the co-occurrences into the second column of the respective line
+  tmpGraph[, 2] <- names(coocs)[1:numberOfCoocs]
+  # Set the significances
+  tmpGraph[, 3] <- coocs[1:numberOfCoocs]
+  
+  # Attach the triples to resultGraph
+  resultGraph <- rbind(resultGraph, tmpGraph)
+  
+  # Iteration over the most significant numberOfCoocs co-occurrences of the search term
+  for (i in 1:numberOfCoocs){
+    
+    # Calling up the co-occurrence calculation for term i from the search words co-occurrences
+    newCoocTerm <- names(coocs)[i]
+    coocs2 <- calculateCoocStatistics(newCoocTerm, binDTM, measure="LOGLIK")
+    
+    #print the co-occurrences
+    coocs2[1:10]
+    
+    # Structure of the temporary graph object
+    tmpGraph <- data.frame(from = character(), to = character(), sig = numeric(0))
+    tmpGraph[1:numberOfCoocs, 3] <- coocs2[1:numberOfCoocs]
+    tmpGraph[, 1] <- newCoocTerm
+    tmpGraph[, 2] <- names(coocs2)[1:numberOfCoocs]
+    tmpGraph[, 3] <- coocs2[1:numberOfCoocs]
+    
+    #Append the result to the result graph
+    resultGraph <- rbind(resultGraph, tmpGraph[2:length(tmpGraph[, 1]), ])
+  }
+  
+  # Sample of some examples from resultGraph
+  resultGraph[sample(nrow(resultGraph), 6), ]
+  
+  # set seed for graph plot
+  set.seed(42)
+  
+  # Create the graph object as undirected graph
+  graphNetwork <- graph.data.frame(resultGraph, directed = F)
+  
+  # Identification of all nodes with less than 2 edges
+  verticesToRemove <- V(graphNetwork)[degree(graphNetwork) < 2]
+  # These edges are removed from the graph
+  graphNetwork <- delete.vertices(graphNetwork, verticesToRemove) 
+  
+  # Assign colors to nodes (search term blue, immediate co-occurence green, others orange)
+  V(graphNetwork)$color <- ifelse(V(graphNetwork)$name == coocTerm, 'cornflowerblue', ifelse(V(graphNetwork)$name %in% imm.coocs, 'darkolivegreen', 'orange')) 
+  
+  # Set edge colors
+  E(graphNetwork)$color <- adjustcolor("DarkGray", alpha.f = .5)
+  # scale significance between 1 and 10 for edge width
+  E(graphNetwork)$width <- scales::rescale(E(graphNetwork)$sig, to = c(1, 10))
+  
+  # Set edges with radius
+  E(graphNetwork)$curved <- 0.15 
+  # Size the nodes by their degree of networking (scaled between 5 and 15)
+  V(graphNetwork)$size <- scales::rescale(degree(graphNetwork), to = c(10, 25))
+  
+  # Define the frame and spacing for the plot
+  par(mai=c(0,0,1,0)) 
+  
+  log_df <- data.frame(names = names(coocs), loglik = coocs)
+  rownames(log_df) <- 1:nrow(log_df)
+  
+  #create list to store outpuy
+  graph_list <- list()
+  graph_list[[1]] <- graphNetwork #grpah object
+  graph_list[[2]] <- imm.coocs #names of immediate co-occurrences
+  graph_list[[3]] <- log_df #all co-occurring nodes and their log likelihoods
+  return(graph_list)
+}
+
+############# FILTER TOKENS BASED ON INPUT V3 ####################
+
+token_filter3 <- function(pos = "all", year_start = 1940, year_end = 1960, toks.filter){
+  
+  if(pos != "all"){
+  rm = c("*/NOUN", "*/ADJ", "*/VERB")
+  pos.temp <- paste("*/", toupper(pos), sep = "")
+  rm = rm[rm != pos.temp]
+  rm = c(rm)
+  
+  toks.filter <- toks.filter %>% 
+    #tokens_replace(pattern = c("*/NOUN", "*/VERB", "*/ADJ"), replacement = c("VERB", "NOUN", "ADJ")) %>% 
+    tokens_remove(pattern = rm)
+  }
+  
+  toks.filter <- toks.filter %>% tokens_subset(decade >= year_start) %>% tokens_subset(decade < year_end) 
+  return(toks.filter)
+}
+
+############# FILTER TOKENS BASED ON INPUT V1 ####################
+
+token_filter <- function(pos = "verb", gender = "female", year = 1940, toks.filter){
+  g = gender
+  rm = c("*/NOUN", "*/ADJ", "*/VERB")
+  pos.temp <- paste("*/", toupper(pos), sep = "")
+  rm = rm[rm != pos.temp]
+  g <- paste(gender,"/CHARACTERS", sep = "")
+  rm = c(rm, g)
+  
+  toks.filter <- toks.filter %>% tokens_subset(decade == year) 
+  
+  toks.filter <- toks.filter %>% 
+    tokens_remove(pattern = rm)
+  
+  return(toks.filter)
+}
+
+``` 
